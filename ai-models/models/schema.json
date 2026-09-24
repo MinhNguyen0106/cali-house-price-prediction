@@ -1,0 +1,108 @@
+{
+  "dataset_name": "California Housing",
+  "target_column": "median_house_value",
+  "required_raw_features": [
+    "longitude",
+    "latitude",
+    "housing_median_age",
+    "total_rooms",
+    "total_bedrooms",
+    "population",
+    "households",
+    "median_income",
+    "ocean_proximity"
+  ],
+  "model_feature_names": [
+    "longitude",
+    "latitude",
+    "housing_median_age",
+    "total_rooms",
+    "total_bedrooms",
+    "population",
+    "households",
+    "median_income",
+    "ocean_proximity",
+    "rooms_per_household",
+    "bedrooms_per_room",
+    "population_per_household"
+  ],
+  "feature_schema": {
+    "longitude": {
+      "type": "number",
+      "min": -124.35,
+      "max": -114.31,
+      "description": "Longitude coordinate of the district."
+    },
+    "latitude": {
+      "type": "number",
+      "min": 32.54,
+      "max": 41.95,
+      "description": "Latitude coordinate of the district."
+    },
+    "housing_median_age": {
+      "type": "number",
+      "min": 1.0,
+      "max": 52.0,
+      "description": "Median age of houses in the district."
+    },
+    "total_rooms": {
+      "type": "number",
+      "min": 2.0,
+      "max": 39320.0,
+      "description": "Total number of rooms in the district."
+    },
+    "total_bedrooms": {
+      "type": "number",
+      "min": 1.0,
+      "max": 6445.0,
+      "description": "Total number of bedrooms in the district."
+    },
+    "population": {
+      "type": "number",
+      "min": 3.0,
+      "max": 35682.0,
+      "description": "Population of the district."
+    },
+    "households": {
+      "type": "number",
+      "min": 1.0,
+      "max": 6082.0,
+      "description": "Number of households in the district."
+    },
+    "median_income": {
+      "type": "number",
+      "min": 0.4999,
+      "max": 15.0001,
+      "description": "Median income in tens of thousands of dollars."
+    },
+    "rooms_per_household": {
+      "type": "number",
+      "min": 0.01,
+      "max": 200.0,
+      "description": "Derived feature: total_rooms / households."
+    },
+    "bedrooms_per_room": {
+      "type": "number",
+      "min": 0.0,
+      "max": 1.2,
+      "description": "Derived feature: total_bedrooms / total_rooms."
+    },
+    "population_per_household": {
+      "type": "number",
+      "min": 0.0,
+      "max": 1500.0,
+      "description": "Derived feature: population / households."
+    },
+    "ocean_proximity": {
+      "type": "string",
+      "allowed_values": [
+        "<1H OCEAN",
+        "INLAND",
+        "ISLAND",
+        "NEAR BAY",
+        "NEAR OCEAN"
+      ],
+      "description": "Proximity to the ocean or bay."
+    }
+  }
+}

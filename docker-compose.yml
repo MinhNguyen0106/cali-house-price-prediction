@@ -1,0 +1,67 @@
+services:
+  mongodb:
+    image: mongo:7
+    container_name: cali-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGODB_DATABASE:-cali_house_db}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+
+  ai-service:
+    build:
+      context: ./ai-models
+      dockerfile: ./service/Dockerfile
+    container_name: cali-ai-service
+    env_file:
+      - .env
+    environment:
+      AI_SERVICE_PORT: ${AI_SERVICE_PORT:-8001}
+    ports:
+      - "${AI_SERVICE_PORT:-8001}:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  backend:
+    build:
+      context: ./app/backend
+    container_name: cali-backend
+    env_file:
+      - .env
+    environment:
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai-service:8001}
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongodb:27017}
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-cali_house_db}
+      MONGODB_COLLECTION: ${MONGODB_COLLECTION:-predictions}
+      BACKEND_PORT: ${BACKEND_PORT:-8000}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      mongodb:
+        condition: service_started
+      ai-service:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./app/frontend
+    container_name: cali-frontend
+    env_file:
+      - .env
+    environment:
+      API_URL: ${API_URL:-http://localhost:8000}
+      FRONTEND_PORT: ${FRONTEND_PORT:-3000}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  mongodb_data:
