@@ -52,7 +52,6 @@ Mô hình được lưu ở:
 ├── .env.example
 ├── docker-compose.yml
 ├── README.md
-├── HUONG_DAN_BAI_TAP_LON.md
 ├── ai-models/
 │   ├── data/
 │   ├── models/
