@@ -282,13 +282,7 @@ cali-house-price-prediction-main/
 │   │   └── evaluate.py
 │   └── requirements.txt
 ├── docs/
-│   ├── figures/
-│   └── performance-test.md
-├── tests/
-│   ├── smoke/
-│   │   └── smoke_test.py
-│   └── load/
-│       └── predict.js
+│   └── figures/
 ├── docker-compose.yml
 ├── .env.example
 ├── .gitignore
@@ -417,69 +411,6 @@ python -m pytest app/backend/tests
 
 Backend tests mock AI Service and MongoDB, so they do not depend on Render or MongoDB Atlas.
 
-## Smoke Test
-
-Smoke test calls a real Backend URL:
-
-```bash
-BACKEND_URL=http://localhost:8000 python tests/smoke/smoke_test.py
-```
-
-For Windows PowerShell:
-
-```powershell
-$env:BACKEND_URL="http://localhost:8000"
-python tests/smoke/smoke_test.py
-```
-
-Expected output is `PASS` or `FAIL`.
-
-## Load Test
-
-Load test uses k6:
-
-```bash
-k6 run -e BACKEND_URL=http://localhost:8000 tests/load/predict.js
-```
-
-Default scenario:
-
-| Setting | Value |
-|---|---|
-| Virtual users | 10 |
-| Duration | 60s |
-| Threshold p95 | `< 2000ms` |
-| Error rate | `< 1%` |
-
-To run 20 users for 60 seconds:
-
-```bash
-k6 run -e BACKEND_URL=http://localhost:8000 -e VUS=20 -e DURATION=60s tests/load/predict.js
-```
-
-## Performance Results
-
-Do not write fake numbers. Fill `docs/performance-test.md` after running real tests.
-
-| Metric | Result |
-|---|---|
-| Functional Test | TBD |
-| Smoke Test | TBD |
-| Load Test p95 | TBD |
-| Error Rate | TBD |
-| Lighthouse Performance | TBD |
-| Lighthouse Accessibility | TBD |
-| Lighthouse Best Practices | TBD |
-| Lighthouse SEO | TBD |
-
-Lighthouse manual steps:
-
-1. Open Frontend in Chrome.
-2. Open DevTools.
-3. Choose Lighthouse.
-4. Analyze page load.
-5. Record Performance, Accessibility, Best Practices, and SEO.
-
 ## Deployment
 
 ### A. AI Service to Render
@@ -577,4 +508,3 @@ AI_SERVICE_URL=https://<ngrok-domain>.ngrok-free.app
 - Render Docker/Web Service docs: https://render.com/docs/docker
 - Render Health Checks docs: https://render.com/docs/health-checks
 - Vercel Python Runtime docs: https://vercel.com/docs/functions/runtimes/python
-
