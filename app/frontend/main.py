@@ -7,12 +7,26 @@ from fastapi.responses import HTMLResponse
 
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 FRONTEND_PORT = int(os.getenv("FRONTEND_PORT", "3000"))
+DEFAULT_CORS_ORIGINS = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+
+
+def parse_cors_origins() -> list[str]:
+    raw_value = os.getenv("CORS_ORIGINS")
+    if not raw_value:
+        return DEFAULT_CORS_ORIGINS
+    origins = [origin.strip() for origin in raw_value.split(",") if origin.strip()]
+    return origins or DEFAULT_CORS_ORIGINS
+
 
 app = FastAPI(title="California Housing Frontend", version="1.0.0")
+cors_origins = parse_cors_origins()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials="*" not in cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

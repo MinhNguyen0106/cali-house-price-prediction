@@ -13,9 +13,15 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-MODEL_PATH = BASE_DIR / "models" / "model.joblib"
-SCHEMA_PATH = BASE_DIR / "models" / "schema.json"
-METADATA_PATH = BASE_DIR / "models" / "metadata.json"
+MODEL_PATH = Path(os.getenv("MODEL_PATH", BASE_DIR / "models" / "model.joblib")).expanduser()
+SCHEMA_PATH = Path(os.getenv("MODEL_SCHEMA_PATH", BASE_DIR / "models" / "schema.json")).expanduser()
+METADATA_PATH = Path(os.getenv("MODEL_METADATA_PATH", BASE_DIR / "models" / "metadata.json")).expanduser()
+DEFAULT_CORS_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
 
 logger = logging.getLogger("ai_service")
 if not logger.handlers:
@@ -23,6 +29,14 @@ if not logger.handlers:
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     logger.addHandler(handler)
 logger.setLevel(logging.INFO)
+
+
+def parse_cors_origins() -> list[str]:
+    raw_value = os.getenv("CORS_ORIGINS")
+    if not raw_value:
+        return DEFAULT_CORS_ORIGINS
+    origins = [origin.strip() for origin in raw_value.split(",") if origin.strip()]
+    return origins or DEFAULT_CORS_ORIGINS
 
 
 def load_json(path: Path) -> Dict[str, Any]:
@@ -104,10 +118,11 @@ def build_model_feature_row(raw_features: Dict[str, Any]) -> Dict[str, Any]:
 model = joblib.load(MODEL_PATH)
 
 app = FastAPI(title="California Housing AI Service", version="1.0.0")
+cors_origins = parse_cors_origins()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials="*" not in cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -118,16 +133,16 @@ async def add_request_id(request: Request, call_next):
     request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
     request.state.request_id = request_id
     start = time.perf_counter()
-    logger.info("START %s %s request_id=%s", request.method, request.url.path, request_id)
+    logger.info("ai-service req=%s start method=%s path=%s", request_id, request.method, request.url.path)
     try:
         response = await call_next(request)
     except Exception:
         elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
-        logger.exception("ERROR %s %s request_id=%s elapsed_ms=%s", request.method, request.url.path, request_id, elapsed_ms)
+        logger.exception("ai-service req=%s error elapsed_ms=%s", request_id, elapsed_ms)
         raise
     elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
     response.headers["X-Request-ID"] = request_id
-    logger.info("END %s %s request_id=%s elapsed_ms=%s", request.method, request.url.path, request_id, elapsed_ms)
+    logger.info("ai-service req=%s status=%s total_duration_ms=%s", request_id, response.status_code, elapsed_ms)
     return response
 
 
@@ -137,7 +152,7 @@ def health() -> Dict[str, Any]:
         "status": "ok",
         "service": "ai-service",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "model_loaded": True,
+        "model_loaded": model is not None,
         "model_path": str(MODEL_PATH),
     }
 
@@ -160,12 +175,20 @@ def model_info() -> Dict[str, Any]:
 @app.post("/predict")
 async def predict(request: Request, payload: Dict[str, Any]) -> Dict[str, Any]:
     request_id = getattr(request.state, "request_id", uuid.uuid4().hex)
+    start = time.perf_counter()
     try:
         features = payload.get("features") if isinstance(payload, dict) else payload
         prepared = build_model_feature_row(features)
         df = pd.DataFrame([prepared])
         prediction = float(model.predict(df)[0])
-        logger.info("prediction_success request_id=%s prediction=%s", request_id, prediction)
+        duration_ms = round((time.perf_counter() - start) * 1000, 2)
+        logger.info(
+            "ai-service req=%s prediction=%s model=%s duration_ms=%s",
+            request_id,
+            prediction,
+            metadata.get("model_version", "unknown"),
+            duration_ms,
+        )
         return {
             "prediction": prediction,
             "model_version": metadata.get("model_version", "unknown"),

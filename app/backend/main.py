@@ -13,12 +13,16 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-SCHEMA_PATH = ROOT_DIR / "ai-models" / "models" / "schema.json"
+APP_DIR = Path(__file__).resolve().parent
 AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://localhost:8001")
+AI_SERVICE_TIMEOUT_SECONDS = float(os.getenv("AI_SERVICE_TIMEOUT_SECONDS", "30"))
 MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
 MONGODB_DATABASE = os.getenv("MONGODB_DATABASE", "cali_house_db")
 MONGODB_COLLECTION = os.getenv("MONGODB_COLLECTION", "predictions")
+DEFAULT_CORS_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
 
 logger = logging.getLogger("backend_service")
 if not logger.handlers:
@@ -26,6 +30,35 @@ if not logger.handlers:
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     logger.addHandler(handler)
 logger.setLevel(logging.INFO)
+
+
+def resolve_schema_path() -> Path:
+    configured_path = os.getenv("MODEL_SCHEMA_PATH") or os.getenv("SCHEMA_PATH")
+    if configured_path:
+        return Path(configured_path).expanduser()
+
+    candidates = [
+        APP_DIR / "schema.json",
+        APP_DIR / "ai-models" / "models" / "schema.json",
+    ]
+    if len(APP_DIR.parents) > 1:
+        candidates.append(APP_DIR.parents[1] / "ai-models" / "models" / "schema.json")
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    return candidates[-1]
+
+
+SCHEMA_PATH = resolve_schema_path()
+
+
+def parse_cors_origins() -> List[str]:
+    raw_value = os.getenv("CORS_ORIGINS")
+    if not raw_value:
+        return DEFAULT_CORS_ORIGINS
+    origins = [origin.strip() for origin in raw_value.split(",") if origin.strip()]
+    return origins or DEFAULT_CORS_ORIGINS
 
 
 def load_schema() -> Dict[str, Any]:
@@ -88,10 +121,11 @@ def validate_features(payload: Any) -> Dict[str, Any]:
 
 
 app = FastAPI(title="California Housing Backend", version="1.0.0")
+cors_origins = parse_cors_origins()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials="*" not in cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -100,17 +134,18 @@ app.add_middleware(
 @app.middleware("http")
 async def request_logger(request: Request, call_next):
     request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+    request.state.request_id = request_id
     start = time.perf_counter()
-    logger.info("START %s %s request_id=%s", request.method, request.url.path, request_id)
+    logger.info("backend req=%s start method=%s path=%s", request_id, request.method, request.url.path)
     try:
         response = await call_next(request)
     except Exception:
         elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
-        logger.exception("ERROR %s %s request_id=%s elapsed_ms=%s", request.method, request.url.path, request_id, elapsed_ms)
+        logger.exception("backend req=%s error elapsed_ms=%s", request_id, elapsed_ms)
         raise
     elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
     response.headers["X-Request-ID"] = request_id
-    logger.info("END %s %s request_id=%s elapsed_ms=%s", request.method, request.url.path, request_id, elapsed_ms)
+    logger.info("backend req=%s status=%s total_duration_ms=%s", request_id, response.status_code, elapsed_ms)
     return response
 
 
@@ -129,6 +164,7 @@ def health() -> Dict[str, Any]:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "ai_service_url": AI_SERVICE_URL,
         "mongodb_status": mongo_status,
+        "schema_path": str(SCHEMA_PATH),
     }
 
 
@@ -158,7 +194,7 @@ def prediction_history() -> Dict[str, Any]:
 
 @app.post("/api/predict")
 async def predict(request: Request) -> JSONResponse:
-    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+    request_id = getattr(request.state, "request_id", request.headers.get("x-request-id") or uuid.uuid4().hex)
     try:
         payload = await request.json()
     except Exception as exc:
@@ -169,15 +205,20 @@ async def predict(request: Request) -> JSONResponse:
         validated_features = validate_features(features)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"error": "invalid_input", "detail": str(exc), "request_id": request_id}) from exc
+    logger.info("backend req=%s validation OK", request_id)
 
     try:
+        logger.info("backend req=%s calling ai-service", request_id)
         ai_response = requests.post(
             f"{AI_SERVICE_URL}/predict",
             json={"features": validated_features},
             headers={"X-Request-ID": request_id},
-            timeout=30,
+            timeout=AI_SERVICE_TIMEOUT_SECONDS,
         )
         ai_response.raise_for_status()
+    except requests.Timeout as exc:
+        logger.exception("AI service timeout for request_id=%s", request_id)
+        raise HTTPException(status_code=504, detail={"error": "ai_service_timeout", "detail": str(exc), "request_id": request_id}) from exc
     except requests.RequestException as exc:
         logger.exception("AI service request failed for request_id=%s", request_id)
         raise HTTPException(status_code=502, detail={"error": "ai_service_unavailable", "detail": str(exc), "request_id": request_id}) from exc

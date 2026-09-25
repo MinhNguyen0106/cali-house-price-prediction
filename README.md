@@ -242,4 +242,339 @@ Dự án này không chỉ tập trung vào độ chính xác của mô hình m�
 - Docker documentation
 - MongoDB documentation
 
+---
+
+## Project Structure
+
+```text
+cali-house-price-prediction-main/
+├── app/
+│   ├── frontend/
+│   │   ├── Dockerfile
+│   │   ├── main.py
+│   │   └── requirements.txt
+│   └── backend/
+│       ├── Dockerfile
+│       ├── main.py
+│       ├── requirements.txt
+│       └── tests/
+├── ai-models/
+│   ├── colab/
+│   │   ├── ML_Project.ipynb
+│   │   ├── 01_eda.ipynb
+│   │   ├── 02_preprocess.ipynb
+│   │   ├── 03_train.ipynb
+│   │   └── 04_evaluate.ipynb
+│   ├── data/
+│   │   ├── housing.csv.zip
+│   │   └── DATA.md
+│   ├── models/
+│   │   ├── model.joblib
+│   │   ├── schema.json
+│   │   └── metadata.json
+│   ├── service/
+│   │   ├── Dockerfile
+│   │   ├── main.py
+│   │   └── tests/
+│   ├── src/
+│   │   ├── preprocess.py
+│   │   ├── train.py
+│   │   └── evaluate.py
+│   └── requirements.txt
+├── docs/
+│   ├── figures/
+│   └── performance-test.md
+├── tests/
+│   ├── smoke/
+│   │   └── smoke_test.py
+│   └── load/
+│       └── predict.js
+├── docker-compose.yml
+├── .env.example
+├── .gitignore
+└── README.md
+```
+
+`docs/slide.pptx` và `docs/baocao.docx` chưa có trong repository hiện tại, nên project không tạo file giả cho hai tài liệu này.
+
+## Model
+
+- Loại bài toán: Regression
+- Target: `median_house_value`
+- Model artifact: `ai-models/models/model.joblib`
+- Model hiện tại: `GradientBoostingRegressor`
+- Pipeline artifact hiện tại gồm `preprocessor` + `model`
+- Raw input features: `longitude`, `latitude`, `housing_median_age`, `total_rooms`, `total_bedrooms`, `population`, `households`, `median_income`, `ocean_proximity`
+- Derived features dùng cho inference: `rooms_per_household`, `bedrooms_per_room`, `population_per_household`
+
+Metadata hiện tại ghi nhận:
+
+| Metric | Value |
+|---|---:|
+| Test RMSE | 46794.54 |
+| Test MAE | 30649.37 |
+| Test R² | 0.8329 |
+
+## Environment Variables
+
+Tạo file local từ mẫu nếu cần:
+
+```bash
+cp .env.example .env
+```
+
+Các biến chính:
+
+| Variable | Purpose |
+|---|---|
+| `AI_SERVICE_URL` | Backend gọi AI Service |
+| `AI_SERVICE_TIMEOUT_SECONDS` | Timeout khi Backend gọi AI Service |
+| `API_URL` | Frontend gọi Backend |
+| `MODEL_PATH` | Đường dẫn model trong AI Service container |
+| `MODEL_METADATA_PATH` | Đường dẫn metadata trong AI Service container |
+| `MODEL_SCHEMA_PATH` | Đường dẫn schema cho AI Service/Backend |
+| `MONGODB_URI` | MongoDB local hoặc MongoDB Atlas |
+| `MONGODB_DATABASE` | Tên database |
+| `MONGODB_COLLECTION` | Collection lưu prediction history |
+| `CORS_ORIGINS` | Danh sách origin cách nhau bằng dấu phẩy |
+| `BACKEND_URL` | URL Backend public cho smoke/load test |
+
+Không commit `.env`, token, password MongoDB Atlas, API key hoặc ngrok token.
+
+## Run With Docker
+
+```bash
+docker compose up --build
+```
+
+Local URLs:
+
+| Service | URL |
+|---|---|
+| Frontend | `http://localhost:3000` |
+| Backend | `http://localhost:8000` |
+| AI Service | `http://localhost:8001` |
+| MongoDB | `mongodb://localhost:27017` |
+
+## API
+
+AI Service:
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/health` | Service status + model loaded |
+| GET | `/model-info` | Metadata thật từ `metadata.json` |
+| POST | `/predict` | Regression prediction |
+
+Backend:
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/health` | Backend + MongoDB status |
+| GET | `/model-info` | Proxy metadata từ AI Service |
+| POST | `/api/predict` | Validate, forward AI Service, save history |
+| GET | `/api/history` | 10 prediction records gần nhất |
+
+Sample payload:
+
+```json
+{
+  "features": {
+    "longitude": -118.24,
+    "latitude": 34.05,
+    "housing_median_age": 30,
+    "total_rooms": 2400,
+    "total_bedrooms": 500,
+    "population": 1200,
+    "households": 400,
+    "median_income": 4.5,
+    "ocean_proximity": "NEAR BAY"
+  }
+}
+```
+
+## Health Checks
+
+```bash
+curl http://localhost:8001/health
+curl http://localhost:8000/health
+curl http://localhost:3000/health
+```
+
+## Functional Tests
+
+AI Service:
+
+```bash
+python -m pytest ai-models/service/tests
+```
+
+Backend:
+
+```bash
+python -m pytest app/backend/tests
+```
+
+Backend tests mock AI Service and MongoDB, so they do not depend on Render or MongoDB Atlas.
+
+## Smoke Test
+
+Smoke test calls a real Backend URL:
+
+```bash
+BACKEND_URL=http://localhost:8000 python tests/smoke/smoke_test.py
+```
+
+For Windows PowerShell:
+
+```powershell
+$env:BACKEND_URL="http://localhost:8000"
+python tests/smoke/smoke_test.py
+```
+
+Expected output is `PASS` or `FAIL`.
+
+## Load Test
+
+Load test uses k6:
+
+```bash
+k6 run -e BACKEND_URL=http://localhost:8000 tests/load/predict.js
+```
+
+Default scenario:
+
+| Setting | Value |
+|---|---|
+| Virtual users | 10 |
+| Duration | 60s |
+| Threshold p95 | `< 2000ms` |
+| Error rate | `< 1%` |
+
+To run 20 users for 60 seconds:
+
+```bash
+k6 run -e BACKEND_URL=http://localhost:8000 -e VUS=20 -e DURATION=60s tests/load/predict.js
+```
+
+## Performance Results
+
+Do not write fake numbers. Fill `docs/performance-test.md` after running real tests.
+
+| Metric | Result |
+|---|---|
+| Functional Test | TBD |
+| Smoke Test | TBD |
+| Load Test p95 | TBD |
+| Error Rate | TBD |
+| Lighthouse Performance | TBD |
+| Lighthouse Accessibility | TBD |
+| Lighthouse Best Practices | TBD |
+| Lighthouse SEO | TBD |
+
+Lighthouse manual steps:
+
+1. Open Frontend in Chrome.
+2. Open DevTools.
+3. Choose Lighthouse.
+4. Analyze page load.
+5. Record Performance, Accessibility, Best Practices, and SEO.
+
+## Deployment
+
+### A. AI Service to Render
+
+- Service type: Web Service
+- Runtime: Docker
+- Root Directory: `ai-models`
+- Dockerfile Path: `service/Dockerfile`
+- Health Check Path: `/health`
+- Port behavior: Docker command binds to `${PORT:-8001}`; Render provides `PORT`
+- Environment Variables:
+  - `MODEL_PATH=/app/models/model.joblib`
+  - `MODEL_METADATA_PATH=/app/models/metadata.json`
+  - `MODEL_SCHEMA_PATH=/app/models/schema.json`
+  - `CORS_ORIGINS=<backend-url>,<frontend-url>`
+
+After deploy, test:
+
+```bash
+curl https://<ai-service>.onrender.com/health
+curl https://<ai-service>.onrender.com/model-info
+```
+
+### B. Backend to Render
+
+- Service type: Web Service
+- Runtime: Docker
+- Root Directory: repository root
+- Dockerfile Path: `app/backend/Dockerfile`
+- Health Check Path: `/health`
+- Port behavior: Docker command binds to `${PORT:-8000}`; Render provides `PORT`
+- Environment Variables:
+  - `AI_SERVICE_URL=https://<ai-service>.onrender.com`
+  - `AI_SERVICE_TIMEOUT_SECONDS=30`
+  - `MODEL_SCHEMA_PATH=/app/ai-models/models/schema.json`
+  - `MONGODB_URI=<MongoDB Atlas connection string or local equivalent>`
+  - `MONGODB_DATABASE=cali_house_db`
+  - `MONGODB_COLLECTION=predictions`
+  - `CORS_ORIGINS=<frontend-url>`
+
+### C. Frontend Deployment
+
+Frontend hiện tại là Python FastAPI app trả HTML, không phải Next.js/React static app. Cách deploy phù hợp nhất cho bản hiện tại:
+
+- Render Web Service
+- Runtime: Docker
+- Root Directory: `app/frontend`
+- Dockerfile Path: `Dockerfile`
+- Health Check Path: `/health`
+- Environment Variables:
+  - `API_URL=https://<backend>.onrender.com`
+  - `CORS_ORIGINS=https://<backend>.onrender.com`
+
+Vercel chỉ nên dùng nếu bạn chuyển frontend sang static/Next.js hoặc tái cấu trúc FastAPI theo Python Functions của Vercel. Không dùng URL Vercel giả trong báo cáo.
+
+### D. MongoDB Atlas
+
+1. Tạo cluster MongoDB Atlas.
+2. Tạo database user.
+3. Allowlist IP phù hợp hoặc dùng `0.0.0.0/0` cho demo ngắn hạn.
+4. Copy connection string vào `MONGODB_URI` trên Render Backend.
+5. Không commit password vào repository.
+
+### E. ngrok Fallback for AI Service
+
+Nếu chưa deploy AI Service lên Render:
+
+```bash
+docker compose up --build ai-service
+ngrok http 8001
+```
+
+Sau đó set Backend env:
+
+```env
+AI_SERVICE_URL=https://<ngrok-domain>.ngrok-free.app
+```
+
+## Demo Online
+
+| Service | URL |
+|---|---|
+| Frontend | TBD |
+| Backend | TBD |
+| AI Service | TBD |
+
+## Tunnel / Port Change Log
+
+| Time | Service | Old URL | New URL | Reason |
+|---|---|---|---|---|
+| TBD | TBD | TBD | TBD | TBD |
+
+## Deployment References
+
+- Render Docker/Web Service docs: https://render.com/docs/docker
+- Render Health Checks docs: https://render.com/docs/health-checks
+- Vercel Python Runtime docs: https://vercel.com/docs/functions/runtimes/python
 
