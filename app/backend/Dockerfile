@@ -9,8 +9,8 @@ COPY app/backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-COPY app/backend/ .
-COPY ai-models/models/schema.json ./ai-models/models/schema.json
+COPY app/backend/ ./
+COPY ai-models/models/schema.json /app/models/schema.json
 
 EXPOSE 8000
 
